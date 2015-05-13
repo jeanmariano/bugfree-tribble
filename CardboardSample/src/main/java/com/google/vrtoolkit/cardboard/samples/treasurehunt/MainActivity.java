@@ -36,6 +36,7 @@ import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.ShortBuffer;
 
 import javax.microedition.khronos.egl.EGLConfig;
 
@@ -57,6 +58,19 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
   private static final int COORDS_PER_VERTEX = 3;
 
+  /** OpenGL handles to our program attributes. */
+
+
+  private static final int POS_DATA_ELEMENTS_SIZE = 3;
+  private static final int NORMAL_DATA_ELEMENTS_SIZE = 3;
+  private static final int COLOR_DATA_ELEMENTS_SIZE = 4;
+
+  private static final int BYTES_PER_FLOAT = 4;
+  private static final int BYTES_PER_SHORT = 2;
+
+  private static final int STRIDE = (POS_DATA_ELEMENTS_SIZE + NORMAL_DATA_ELEMENTS_SIZE + COLOR_DATA_ELEMENTS_SIZE)
+          * BYTES_PER_FLOAT;
+
   // We keep the light always position just above the user.
   private static final float[] LIGHT_POS_IN_WORLD_SPACE = new float[] { 0.0f, 2.0f, 0.0f, 1.0f };
 
@@ -73,6 +87,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
   private int cubeProgram;
   private int floorProgram;
+  private int heightMapProgram;
 
   private int cubePositionParam;
   private int cubeNormalParam;
@@ -81,6 +96,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   private int cubeModelViewParam;
   private int cubeModelViewProjectionParam;
   private int cubeLightPosParam;
+
+  private int positionAttribute;
+  private int normalAttribute;
+  private int colorAttribute;
 
   private int floorPositionParam;
   private int floorNormalParam;
@@ -97,6 +116,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   private float[] modelViewProjection;
   private float[] modelView;
   private float[] modelFloor;
+
+  private HeightMap heightMap;
 
   private int score = 0;
   private float objectDistance = 12f;
@@ -171,7 +192,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     headView = new float[16];
     vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
 
-
     overlayView = (CardboardOverlayView) findViewById(R.id.overlay);
     overlayView.show3DToast("Pull the magnet when you find an object.");
   }
@@ -196,6 +216,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
    */
   @Override
   public void onSurfaceCreated(EGLConfig config) {
+    heightMap = new HeightMap();
+
     Log.i(TAG, "onSurfaceCreated");
     GLES20.glClearColor(0.1f, 0.1f, 0.1f, 0.5f); // Dark background so text shows up well.
 
@@ -264,11 +286,31 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     cubeModelViewProjectionParam = GLES20.glGetUniformLocation(cubeProgram, "u_MVP");
     cubeLightPosParam = GLES20.glGetUniformLocation(cubeProgram, "u_LightPos");
 
+
+
     GLES20.glEnableVertexAttribArray(cubePositionParam);
     GLES20.glEnableVertexAttribArray(cubeNormalParam);
     GLES20.glEnableVertexAttribArray(cubeColorParam);
 
     checkGLError("Cube program params");
+
+    heightMapProgram = GLES20.glCreateProgram();
+    GLES20.glAttachShader(heightMapProgram, vertexShader);
+    GLES20.glAttachShader(heightMapProgram, passthroughShader);
+    GLES20.glLinkProgram(heightMapProgram);
+    GLES20.glUseProgram(heightMapProgram);
+
+    checkGLError("Cube program");
+
+    positionAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Position");
+    normalAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Normal");
+    colorAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Color");
+
+//    cubeModelParam = GLES20.glGetUniformLocation(heightMapProgram, "u_Model");
+//    cubeModelViewParam = GLES20.glGetUniformLocation(heightMapProgram, "u_MVMatrix");
+//    cubeModelViewProjectionParam = GLES20.glGetUniformLocation(heightMapProgram, "u_MVP");
+//    cubeLightPosParam = GLES20.glGetUniformLocation(heightMapProgram, "u_LightPos");
+
 
     floorProgram = GLES20.glCreateProgram();
     GLES20.glAttachShader(floorProgram, vertexShader);
@@ -332,6 +374,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
    * Prepares OpenGL ES before we draw a frame.
    *
    * @param headTransform The head transformation in the new frame.
+   *                      (update model here)
    */
   @Override
   public void onNewFrame(HeadTransform headTransform) {
@@ -375,6 +418,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     Matrix.multiplyMM(modelViewProjection, 0, perspective, 0,
       modelView, 0);
     drawFloor();
+    heightMap.render();
   }
 
   @Override
@@ -506,4 +550,167 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     return Math.abs(pitch) < PITCH_LIMIT && Math.abs(yaw) < YAW_LIMIT;
   }
+
+  class HeightMap
+  {
+
+
+    static final int SIZE_PER_SIDE = 32;
+    static final float MIN_POS = -5f;
+    static final float POS_RANGE = 10f;
+
+    final int[] vertexBuffer = new int[1];
+    final int[] indexBuffer = new int[1];
+
+    int indexCount;
+
+    HeightMap() {
+      try {
+        final int floatsPerVertex = POS_DATA_ELEMENTS_SIZE +
+                NORMAL_DATA_ELEMENTS_SIZE + COLOR_DATA_ELEMENTS_SIZE;
+        final int xLength = SIZE_PER_SIDE;
+        final int yLength = SIZE_PER_SIDE;
+
+        final float[] heightMapVertexData = new float[
+                xLength * yLength * floatsPerVertex];
+        int offset = 0;
+
+        //build the vertex buffer data
+        for(int y=0; y<yLength; y++) {
+          for(int x=0; x<xLength; x++){
+            final float xRatio = x/(float)(xLength -1);
+            //build counter clockwise
+            final float yRatio = 1f - (y/(float)(yLength -1));
+            final float xPos = MIN_POS + (xRatio*POS_RANGE);
+            final float yPos = MIN_POS + (yRatio*POS_RANGE);
+
+            //Position
+            //TODO (right now a parabola)
+            heightMapVertexData[offset++] = xPos;
+            heightMapVertexData[offset++] = yPos;
+            heightMapVertexData[offset++] = ((xPos*xPos)+(yPos*yPos))/10f;
+
+            //calculate the normals
+            //TODO (right now it is just a parabola's)
+            final float xSlope = (2 * xPos) / 10f;
+            final float ySlope = (2 * yPos) / 10f;
+            final float[] planeVectorX = {1f, 0f, xSlope};
+            final float[] planeVectorY = {0f, 1f, ySlope};
+            final float[] normalVector = {
+                    (planeVectorX[1] * planeVectorY[2]) - (planeVectorX[2] * planeVectorY[1]),
+                    (planeVectorX[2] * planeVectorY[0]) - (planeVectorX[0] * planeVectorY[2]),
+                    (planeVectorX[0] * planeVectorY[1]) - (planeVectorX[1] * planeVectorY[0])};
+
+            // Normalize the normal
+            final float length = Matrix.length(normalVector[0], normalVector[1], normalVector[2]);
+
+            heightMapVertexData[offset++] = normalVector[0] / length;
+            heightMapVertexData[offset++] = normalVector[1] / length;
+            heightMapVertexData[offset++] = normalVector[2] / length;
+
+            //Add Colours
+            // TODO
+            heightMapVertexData[offset++] = xRatio;
+            heightMapVertexData[offset++] = yRatio;
+            heightMapVertexData[offset++] = 0.5f;
+            heightMapVertexData[offset++] = 1f;
+          }
+        }
+        //build the index data
+        final int numStrips = yLength -1;
+        final int numDegenerate = 2 * (numStrips -1);
+        final int verticesPerStrip = 2*xLength;
+
+        final short[] heightMapIndexData = new short[(
+                verticesPerStrip*numStrips) + numDegenerate];
+        offset = 0;
+
+        for(int y=0; y<numStrips; y++){
+          if(y>0){
+            //start chunk... degenerate, so repeat the first vertex
+            heightMapIndexData[offset++] = (short)(y*yLength);
+          }
+          for(int x=0; x<xLength; x++){
+            //chunk of the strip
+            heightMapIndexData[offset++] = (short)((y*yLength)+x);
+            heightMapIndexData[offset++] = (short)(((y+1) * yLength)+x);
+          }
+          if(y<yLength-2){
+            //end chunk...degenerate so repeat last vertex
+            heightMapIndexData[offset++] = (short) (((y + 1) * yLength) + (xLength - 1));
+          }
+        }
+        indexCount = heightMapIndexData.length;
+        final FloatBuffer heightMapVertexDataBuffer = ByteBuffer
+                .allocateDirect(heightMapVertexData.length * BYTES_PER_FLOAT)
+                .order(ByteOrder.nativeOrder()).asFloatBuffer();
+        heightMapVertexDataBuffer.put(heightMapVertexData).position(0);
+
+        final ShortBuffer heightMapIndexDataBuffer = ByteBuffer.allocateDirect(
+                heightMapIndexData.length*BYTES_PER_SHORT).order(ByteOrder.nativeOrder().nativeOrder())
+                .asShortBuffer();
+        heightMapIndexDataBuffer.put(heightMapIndexData).position(0);
+
+        GLES20.glGenBuffers(1, vertexBuffer, 0);
+        GLES20.glGenBuffers(1, indexBuffer, 0);
+
+        if(vertexBuffer[0]>0 && indexBuffer[0] > 0){
+          GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer[0]);
+          GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, heightMapVertexDataBuffer.capacity() * BYTES_PER_FLOAT,
+                  heightMapVertexDataBuffer, GLES20.GL_STATIC_DRAW);
+
+          GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, indexBuffer[0]);
+          GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, heightMapIndexDataBuffer.capacity()
+                  * BYTES_PER_SHORT, heightMapIndexDataBuffer, GLES20.GL_STATIC_DRAW);
+
+          GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
+          GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0);
+        } else {
+          System.out.println("Error in buffer creation");
+        }
+
+      } catch(Throwable t) {
+        System.out.println("Error in buffer creation");
+      }
+    }
+    void render() {
+      if (vertexBuffer[0] > 0 && indexBuffer[0] > 0) {
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer[0]);
+
+        // Bind Attributes
+        GLES20.glVertexAttribPointer(positionAttribute, POS_DATA_ELEMENTS_SIZE, GLES20.GL_FLOAT, false,
+                STRIDE, 0);
+        GLES20.glEnableVertexAttribArray(positionAttribute);
+
+        GLES20.glVertexAttribPointer(normalAttribute, NORMAL_DATA_ELEMENTS_SIZE, GLES20.GL_FLOAT, false,
+                STRIDE, POS_DATA_ELEMENTS_SIZE * BYTES_PER_FLOAT);
+        GLES20.glEnableVertexAttribArray(normalAttribute);
+
+        GLES20.glVertexAttribPointer(colorAttribute, COLOR_DATA_ELEMENTS_SIZE, GLES20.GL_FLOAT, false,
+                STRIDE, (POS_DATA_ELEMENTS_SIZE + NORMAL_DATA_ELEMENTS_SIZE) * BYTES_PER_FLOAT);
+        GLES20.glEnableVertexAttribArray(colorAttribute);
+
+        // Draw
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, indexBuffer[0]);
+        GLES20.glDrawElements(GLES20.GL_TRIANGLE_STRIP, indexCount, GLES20.GL_UNSIGNED_SHORT, 0);
+
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0);
+      }
+    }
+
+    void release() {
+      if (vertexBuffer[0] > 0) {
+        GLES20.glDeleteBuffers(vertexBuffer.length, vertexBuffer, 0);
+        vertexBuffer[0] = 0;
+      }
+      if (indexBuffer[0] > 0) {
+        GLES20.glDeleteBuffers(indexBuffer.length, indexBuffer, 0);
+        indexBuffer[0] = 0;
+      }
+    }
+
+  }
+
+
 }

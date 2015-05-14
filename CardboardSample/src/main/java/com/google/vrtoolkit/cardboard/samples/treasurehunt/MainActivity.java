@@ -23,11 +23,16 @@ import com.google.vrtoolkit.cardboard.HeadTransform;
 import com.google.vrtoolkit.cardboard.Viewport;
 
 import android.content.Context;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.nfc.Tag;
 import android.opengl.GLES20;
+import android.opengl.GLUtils;
 import android.opengl.Matrix;
 import android.os.Bundle;
 import android.os.Vibrator;
 import android.util.Log;
+import android.graphics.Bitmap;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -109,6 +114,11 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   private int floorModelViewProjectionParam;
   private int floorLightPosParam;
 
+  private int heightMapModelParam;
+  private int heightMapModelViewParam;
+  private int heightMapModelViewProjectionParam;
+  private int heightMapLightPosParam;
+
   private float[] modelCube;
   private float[] camera;
   private float[] view;
@@ -121,6 +131,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
   private int score = 0;
   private float objectDistance = 12f;
+  //TODO adjust so that the terrain intersects appropriately with grid/water
   private float floorDepth = 20f;
 
   private Vibrator vibrator;
@@ -294,23 +305,25 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     checkGLError("Cube program params");
 
+    //set up the terrain shaders
+
     heightMapProgram = GLES20.glCreateProgram();
     GLES20.glAttachShader(heightMapProgram, vertexShader);
     GLES20.glAttachShader(heightMapProgram, passthroughShader);
     GLES20.glLinkProgram(heightMapProgram);
     GLES20.glUseProgram(heightMapProgram);
 
-    checkGLError("Cube program");
+    checkGLError("heightmap program");
+    heightMapModelParam = GLES20.glGetUniformLocation(heightMapProgram, "u_Model");
+    heightMapModelViewParam = GLES20.glGetUniformLocation(heightMapProgram, "u_MVMatrix");
+    heightMapModelViewProjectionParam = GLES20.glGetUniformLocation(heightMapProgram, "u_MVP");
+    heightMapLightPosParam = GLES20.glGetUniformLocation(heightMapProgram, "u_LightPos");
 
     positionAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Position");
     normalAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Normal");
     colorAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Color");
 
-//    cubeModelParam = GLES20.glGetUniformLocation(heightMapProgram, "u_Model");
-//    cubeModelViewParam = GLES20.glGetUniformLocation(heightMapProgram, "u_MVMatrix");
-//    cubeModelViewProjectionParam = GLES20.glGetUniformLocation(heightMapProgram, "u_MVP");
-//    cubeLightPosParam = GLES20.glGetUniformLocation(heightMapProgram, "u_LightPos");
-
+    //set up the floor shader
 
     floorProgram = GLES20.glCreateProgram();
     GLES20.glAttachShader(floorProgram, vertexShader);
@@ -416,9 +429,17 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     // Set modelView for the floor, so we draw floor in the correct location
     Matrix.multiplyMM(modelView, 0, view, 0, modelFloor, 0);
     Matrix.multiplyMM(modelViewProjection, 0, perspective, 0,
-      modelView, 0);
-    drawFloor();
+            modelView, 0);
+
+
     heightMap.render();
+    // Set modelView for the floor, so we draw floor in the correct location
+    Matrix.multiplyMM(modelView, 0, view, 0, modelFloor, 0);
+    Matrix.multiplyMM(modelViewProjection, 0, perspective, 0,
+            modelView, 0);
+
+    drawFloor();
+
   }
 
   @Override
@@ -443,7 +464,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     // Set the position of the cube
     GLES20.glVertexAttribPointer(cubePositionParam, COORDS_PER_VERTEX, GLES20.GL_FLOAT,
-        false, 0, cubeVertices);
+            false, 0, cubeVertices);
 
     // Set the ModelViewProjection matrix in the shader.
     GLES20.glUniformMatrix4fv(cubeModelViewProjectionParam, 1, false, modelViewProjection, 0);
@@ -451,7 +472,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     // Set the normal positions of the cube, again for shading
     GLES20.glVertexAttribPointer(cubeNormalParam, 3, GLES20.GL_FLOAT, false, 0, cubeNormals);
     GLES20.glVertexAttribPointer(cubeColorParam, 4, GLES20.GL_FLOAT, false, 0,
-        isLookingAtObject() ? cubeFoundColors : cubeColors);
+            isLookingAtObject() ? cubeFoundColors : cubeColors);
 
     GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
     checkGLError("Drawing cube");
@@ -472,11 +493,11 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     GLES20.glUniformMatrix4fv(floorModelParam, 1, false, modelFloor, 0);
     GLES20.glUniformMatrix4fv(floorModelViewParam, 1, false, modelView, 0);
     GLES20.glUniformMatrix4fv(floorModelViewProjectionParam, 1, false,
-        modelViewProjection, 0);
+            modelViewProjection, 0);
     GLES20.glVertexAttribPointer(floorPositionParam, COORDS_PER_VERTEX, GLES20.GL_FLOAT,
-        false, 0, floorVertices);
+            false, 0, floorVertices);
     GLES20.glVertexAttribPointer(floorNormalParam, 3, GLES20.GL_FLOAT, false, 0,
-        floorNormals);
+            floorNormals);
     GLES20.glVertexAttribPointer(floorColorParam, 4, GLES20.GL_FLOAT, false, 0, floorColors);
 
     GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
@@ -520,7 +541,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     objectDistance = (float) Math.random() * 15 + 5;
     float objectScalingFactor = objectDistance / oldObjectDistance;
     Matrix.scaleM(rotationMatrix, 0, objectScalingFactor, objectScalingFactor,
-        objectScalingFactor);
+            objectScalingFactor);
     Matrix.multiplyMV(posVec, 0, rotationMatrix, 0, modelCube, 12);
 
     // Now get the up or down angle, between -20 and 20 degrees.
@@ -550,15 +571,43 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     return Math.abs(pitch) < PITCH_LIMIT && Math.abs(yaw) < YAW_LIMIT;
   }
+  public static int loadTexture(final Context context, final int resourceId)
+  {
+    final int[] textureHandle = new int[1];
 
+    GLES20.glGenTextures(1, textureHandle, 0);
+
+    if (textureHandle[0] != 0)
+    {
+      final BitmapFactory.Options options = new BitmapFactory.Options();
+      options.inScaled = false;   // No pre-scaling
+
+      // Read in the resource
+      final Bitmap bitmap = BitmapFactory.decodeResource(context.getResources(), resourceId, options);
+
+      // Bind to the texture in OpenGL
+      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureHandle[0]);
+
+      // Set filtering
+      GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
+      GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST);
+
+      // Load the bitmap into the bound texture.
+      GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0);
+
+      // Recycle the bitmap, since its data has been loaded into OpenGL.
+      bitmap.recycle();
+    }
+
+    if (textureHandle[0] == 0)
+    {
+      throw new RuntimeException("Error loading texture.");
+    }
+
+    return textureHandle[0];
+  }
   class HeightMap
   {
-
-
-    static final int SIZE_PER_SIDE = 32;
-    static final float MIN_POS = -5f;
-    static final float POS_RANGE = 10f;
-
     final int[] vertexBuffer = new int[1];
     final int[] indexBuffer = new int[1];
 
@@ -566,60 +615,132 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     HeightMap() {
       try {
+        final BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inScaled = false;   // No pre-scaling
+
+        // Read in the resource
+        final Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.raw.heightmap, options);
+
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+
+        final int[] pixels = new int[width * height];
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+        bitmap.recycle();
+
+
         final int floatsPerVertex = POS_DATA_ELEMENTS_SIZE +
                 NORMAL_DATA_ELEMENTS_SIZE + COLOR_DATA_ELEMENTS_SIZE;
-        final int xLength = SIZE_PER_SIDE;
-        final int yLength = SIZE_PER_SIDE;
 
-        final float[] heightMapVertexData = new float[
-                xLength * yLength * floatsPerVertex];
+        float xScale = 400f/(float)width;
+        float yScale = 400f/(float)height;
+
+        final float[] heightmapVertices = new float[
+                width * height * floatsPerVertex];
         int offset = 0;
+        //positions
+        float[][] y_positions = new float[width][height];
+        float[] positions = new float[width*height*POS_DATA_ELEMENTS_SIZE];
+        for (int row = 0; row < height; row++) {
+          for (int col = 0; col < width; col++) {
+            // The heightmap will lie flat on the XZ plane and centered
+            // around (0, 0), with the bitmap width mapped to X and the
+            // bitmap height mapped to Z, and Y representing the height. We
+            // assume the heightmap is grayscale, and use the value of the
+            // red color to determine the height.
+            final float xPosition = xScale * col - 200f;
+//            final float yPosition =
+//                    (float) (Color.red(pixels[(row * height) + col]) / 100f) -1.5f;
+            final float yPosition =
+              (Color.red(pixels[(row * height) + col]) / 255f)*-100f;
+            final float zPosition = yScale * row - 200f;
+            positions[offset++] = xPosition;
+            positions[offset++] = yPosition;
+            positions[offset++] = zPosition;
 
-        //build the vertex buffer data
-        for(int y=0; y<yLength; y++) {
-          for(int x=0; x<xLength; x++){
-            final float xRatio = x/(float)(xLength -1);
-            //build counter clockwise
-            final float yRatio = 1f - (y/(float)(yLength -1));
-            final float xPos = MIN_POS + (xRatio*POS_RANGE);
-            final float yPos = MIN_POS + (yRatio*POS_RANGE);
+            y_positions[col][row] = yPosition;
+          }
+        }
 
-            //Position
-            //TODO (right now a parabola)
-            heightMapVertexData[offset++] = xPos;
-            heightMapVertexData[offset++] = yPos;
-            heightMapVertexData[offset++] = ((xPos*xPos)+(yPos*yPos))/10f;
+        offset = 0;
+        int pos_off = 0;
+        for(int row=0; row<height; row++){
+          for(int col=0; col<height; col++){
+            heightmapVertices[offset++] = positions[pos_off++];
+            heightmapVertices[offset++] = positions[pos_off++];
+            heightmapVertices[offset++] = positions[pos_off++];
 
-            //calculate the normals
-            //TODO (right now it is just a parabola's)
-            final float xSlope = (2 * xPos) / 10f;
-            final float ySlope = (2 * yPos) / 10f;
-            final float[] planeVectorX = {1f, 0f, xSlope};
-            final float[] planeVectorY = {0f, 1f, ySlope};
+            //normals
+
+            //first calculate vectors to adjacent vertices
+            //in a grid this is the vertex above minus the current vertex,
+              //the vertex diagonally and to the left minus the current vertex
+              //and the vertex to the left minus the current vertex
+            float[] v1 = new float[3];
+            if(col != 0 && row != height-1) {
+              v1[0] = (xScale * (col - 1) - 200f) - (xScale * col - 200f);
+              v1[1] = (y_positions[col - 1][row + 1] - y_positions[col][row]);
+              v1[2] = (yScale * (row + 1) - 200f) - (yScale * row - 200f);
+            }
+            float[] v2 = new float[3];
+            if(row != height-1) {
+              v2[0] = (xScale * (col) - 200f) - (xScale * col - 200f);
+              v2[1] = (y_positions[col][row + 1] - y_positions[col][row]);
+              v2[2] = (yScale * (row + 1) - 200f) - (yScale * row - 200f);
+            }
+            float[] v3 = new float[3];
+            if(col!=0) {
+              v3[0] = (xScale * (col - 1) - 200f) - (xScale * col - 200f);
+              v3[1] = (y_positions[col - 1][row] - y_positions[col][row]);
+              v3[2] = (yScale * (row) - 200f) - (yScale * row - 200f);
+            }
+
+            //find the normals via cross product and normalize with their length if not 0
+            float[] v12 = cross(v1, v2);
+            float[] v23 = cross(v2, v3);
+            float[] v31 = cross(v3, v1);
+
+            final float length12 = Matrix.length(v12[0], v12[1], v12[2]);
+            final float length23 = Matrix.length(v23[0], v23[1], v23[2]);
+            final float length31 = Matrix.length(v31[0], v31[1], v31[2]);
+
+            if(length12 !=0){
+              v12[0] /= length12;
+              v12[1] /= length12;
+              v12[2] /= length12;
+            }
+            if(length23 !=0){
+              v23[0] /= length23;
+              v23[1] /= length23;
+              v23[2] /= length23;
+            }
+            if(length31 !=0){
+              v31[0] /= length31;
+              v31[1] /= length31;
+              v31[2] /= length31;
+            }
+            //some all adjacent vector normals to find this vertex's normal
             final float[] normalVector = {
-                    (planeVectorX[1] * planeVectorY[2]) - (planeVectorX[2] * planeVectorY[1]),
-                    (planeVectorX[2] * planeVectorY[0]) - (planeVectorX[0] * planeVectorY[2]),
-                    (planeVectorX[0] * planeVectorY[1]) - (planeVectorX[1] * planeVectorY[0])};
-
-            // Normalize the normal
+                    (v12[0]+ v23[0] + v31[0]),
+                    (v12[1] + v23[1] + v31[1]),
+                    (v12[2] + v23[2] + v31[2])};
+        //normalize if not 0
             final float length = Matrix.length(normalVector[0], normalVector[1], normalVector[2]);
+              heightmapVertices[offset++] = length!=0? normalVector[0] / length : 0;
+              heightmapVertices[offset++] = length!=0? normalVector[1] / length : 0;
+              heightmapVertices[offset++] = length!=0? normalVector[2] / length : 0;
 
-            heightMapVertexData[offset++] = normalVector[0] / length;
-            heightMapVertexData[offset++] = normalVector[1] / length;
-            heightMapVertexData[offset++] = normalVector[2] / length;
-
-            //Add Colours
-            // TODO
-            heightMapVertexData[offset++] = xRatio;
-            heightMapVertexData[offset++] = yRatio;
-            heightMapVertexData[offset++] = 0.5f;
-            heightMapVertexData[offset++] = 1f;
+//          //Add Colours
+            heightmapVertices[offset++] = 0.5f;
+            heightmapVertices[offset++] = 0.8f;
+            heightmapVertices[offset++] = 0.5f;
+            heightmapVertices[offset++] = 1f;
           }
         }
         //build the index data
-        final int numStrips = yLength -1;
+        final int numStrips = height -1;
         final int numDegenerate = 2 * (numStrips -1);
-        final int verticesPerStrip = 2*xLength;
+        final int verticesPerStrip = 2*width;
 
         final short[] heightMapIndexData = new short[(
                 verticesPerStrip*numStrips) + numDegenerate];
@@ -627,24 +748,24 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         for(int y=0; y<numStrips; y++){
           if(y>0){
-            //start chunk... degenerate, so repeat the first vertex
-            heightMapIndexData[offset++] = (short)(y*yLength);
+            //start chunk... degenerate (strips share), so repeat the first vertex
+            heightMapIndexData[offset++] = (short)(y*height);
           }
-          for(int x=0; x<xLength; x++){
+          for(int x=0; x<width; x++){
             //chunk of the strip
-            heightMapIndexData[offset++] = (short)((y*yLength)+x);
-            heightMapIndexData[offset++] = (short)(((y+1) * yLength)+x);
+            heightMapIndexData[offset++] = (short)((y*height)+x);
+            heightMapIndexData[offset++] = (short)(((y+1) * height)+x);
           }
-          if(y<yLength-2){
+          if(y<height-2){
             //end chunk...degenerate so repeat last vertex
-            heightMapIndexData[offset++] = (short) (((y + 1) * yLength) + (xLength - 1));
+            heightMapIndexData[offset++] = (short) (((y + 1) * height) + (width - 1));
           }
         }
         indexCount = heightMapIndexData.length;
         final FloatBuffer heightMapVertexDataBuffer = ByteBuffer
-                .allocateDirect(heightMapVertexData.length * BYTES_PER_FLOAT)
+                .allocateDirect(heightmapVertices.length * BYTES_PER_FLOAT)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer();
-        heightMapVertexDataBuffer.put(heightMapVertexData).position(0);
+        heightMapVertexDataBuffer.put(heightmapVertices).position(0);
 
         final ShortBuffer heightMapIndexDataBuffer = ByteBuffer.allocateDirect(
                 heightMapIndexData.length*BYTES_PER_SHORT).order(ByteOrder.nativeOrder().nativeOrder())
@@ -653,7 +774,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         GLES20.glGenBuffers(1, vertexBuffer, 0);
         GLES20.glGenBuffers(1, indexBuffer, 0);
-
+        //create buffers
         if(vertexBuffer[0]>0 && indexBuffer[0] > 0){
           GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer[0]);
           GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, heightMapVertexDataBuffer.capacity() * BYTES_PER_FLOAT,
@@ -673,7 +794,17 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         System.out.println("Error in buffer creation");
       }
     }
+
     void render() {
+      GLES20.glUseProgram(heightMapProgram);
+
+      // Set ModelView, MVP, position, normals, and color.
+      GLES20.glUniform3fv(heightMapLightPosParam, 1, lightPosInEyeSpace, 0);
+      GLES20.glUniformMatrix4fv(heightMapModelParam, 1, false, modelFloor, 0);
+      GLES20.glUniformMatrix4fv(heightMapModelViewParam, 1, false, modelView, 0);
+      GLES20.glUniformMatrix4fv(heightMapModelViewProjectionParam, 1, false,
+              modelViewProjection, 0);
+
       if (vertexBuffer[0] > 0 && indexBuffer[0] > 0) {
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer[0]);
 
@@ -711,6 +842,13 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     }
 
   }
-
+//helper function for cross product of two 3 element vectors
+  private float[] cross(float[] p1, float[] p2) {
+    float[] result = new float[3];
+    result[0] = p1[1]*p2[2]-p2[1]*p1[2];
+    result[1] = p1[2]*p2[0]-p2[2]*p1[0];
+    result[2] = p1[0]*p2[1]-p2[0]*p1[1];
+    return result;
+  }
 
 }

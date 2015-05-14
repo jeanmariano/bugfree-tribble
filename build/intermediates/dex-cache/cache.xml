@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<items version="2" >
+
+    <item
+        jar="C:\Users\Jean\Documents\GitHub\bugfree-tribble\CardboardSample\libs\libprotobuf-java-2.6-nano.jar"
+        jumboMode="false"
+        revision="19.1.0"
+        sha1="2ba3ce68542db5a4b672a22606e4fd4631ed5c4f">
+        <dex dex="C:\Users\Jean\Documents\GitHub\bugfree-tribble\CardboardSample\build\intermediates\pre-dexed\debug\libprotobuf-java-2.6-nano-2a9f25babc414c01d4fd5815fbc326fc933dc52a.jar" />
+    </item>
+    <item
+        jar="C:\Users\Jean\Documents\Barnard\2014-2015\second sem\cg\cardboard-java-master\cardboard-java-master\CardboardSample\libs\libprotobuf-java-2.6-nano.jar"
+        jumboMode="false"
+        revision="19.1.0"
+        sha1="2ba3ce68542db5a4b672a22606e4fd4631ed5c4f">
+        <dex dex="C:\Users\Jean\Documents\Barnard\2014-2015\second sem\cg\cardboard-java-master\cardboard-java-master\CardboardSample\build\intermediates\pre-dexed\debug\libprotobuf-java-2.6-nano-8c00c7536aa94f2cd28b5d4f7605c61c5e0106d7.jar" />
+    </item>
+    <item
+        jar="C:\Users\Jean\Documents\GitHub\bugfree-tribble\CardboardSample\libs\cardboard.jar"
+        jumboMode="false"
+        revision="19.1.0"
+        sha1="362279d4f3f879ad389c300e0bc1f188ad522a08">
+        <dex dex="C:\Users\Jean\Documents\GitHub\bugfree-tribble\CardboardSample\build\intermediates\pre-dexed\debug\cardboard-1c2f5f51b836e77daeb2bf4aa896861ad8a272b8.jar" />
+    </item>
+    <item
+        jar="C:\Users\Jean\Documents\Barnard\2014-2015\second sem\cg\cardboard-java-master\cardboard-java-master\CardboardSample\libs\cardboard.jar"
+        jumboMode="false"
+        revision="19.1.0"
+        sha1="362279d4f3f879ad389c300e0bc1f188ad522a08">
+        <dex dex="C:\Users\Jean\Documents\Barnard\2014-2015\second sem\cg\cardboard-java-master\cardboard-java-master\CardboardSample\build\intermediates\pre-dexed\debug\cardboard-9471357a0a300af16d84de5a01a4ef4bf02d0c5d.jar" />
+    </item>
+
+</items>

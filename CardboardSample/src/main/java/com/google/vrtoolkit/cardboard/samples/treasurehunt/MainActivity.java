@@ -25,7 +25,7 @@ import com.google.vrtoolkit.cardboard.Viewport;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Rect;
+import android.graphics.Color;
 import android.opengl.GLES20;
 import android.opengl.GLUtils;
 import android.opengl.Matrix;
@@ -40,6 +40,7 @@ import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.ShortBuffer;
 
 import javax.microedition.khronos.egl.EGLConfig;
 
@@ -61,6 +62,19 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     private static final int COORDS_PER_VERTEX = 3;
 
+
+    private static final int POS_DATA_ELEMENTS_SIZE = 3;
+    private static final int NORMAL_DATA_ELEMENTS_SIZE = 3;
+    private static final int COLOR_DATA_ELEMENTS_SIZE = 4;
+
+    private static final int BYTES_PER_FLOAT = 4;
+    private static final int BYTES_PER_SHORT = 2;
+
+    private static final int STRIDE = (POS_DATA_ELEMENTS_SIZE + NORMAL_DATA_ELEMENTS_SIZE + COLOR_DATA_ELEMENTS_SIZE)
+            * BYTES_PER_FLOAT;
+
+
+
     // We keep the light always position just above the user.
     private static final float[] LIGHT_POS_IN_WORLD_SPACE = new float[] { 0.0f, 2.0f, 0.0f, 1.0f };
 
@@ -76,8 +90,15 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private FloatBuffer cubeFoundColors;
     private FloatBuffer cubeNormals;
 
+    private FloatBuffer skyboxVertices;
+    private FloatBuffer skyboxColors;
+    private FloatBuffer skyboxFoundColors;
+    private FloatBuffer skyboxNormals;
+
     private int cubeProgram;
     private int floorProgram;
+    private int heightMapProgram;
+    private int skyboxProgram;
 
     private int cubePositionParam;
     private int cubeNormalParam;
@@ -87,6 +108,14 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private int cubeModelViewProjectionParam;
     private int cubeLightPosParam;
 
+    private int skyboxPositionParam;
+    private int skyboxNormalParam;
+    private int skyboxColorParam;
+    private int skyboxModelParam;
+    private int skyboxModelViewParam;
+    private int skyboxModelViewProjectionParam;
+    private int skyboxLightPosParam;
+
     private int floorPositionParam;
     private int floorNormalParam;
     private int floorColorParam;
@@ -95,13 +124,24 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private int floorModelViewProjectionParam;
     private int floorLightPosParam;
 
+    private int positionAttribute;
+    private int normalAttribute;
+    private int colorAttribute;
+    private int heightMapModelParam;
+    private int heightMapModelViewParam;
+    private int heightMapModelViewProjectionParam;
+    private int heightMapLightPosParam;
+
     private float[] modelCube;
+    private float[] modelSkybox;
     private float[] camera;
     private float[] view;
     private float[] headView;
     private float[] modelViewProjection;
     private float[] modelView;
     private float[] modelFloor;
+
+    private HeightMap heightMap;
 
     private int score = 0;
     private float objectDistance = 12f;
@@ -125,6 +165,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     /** This is a handle to our texture data. */
     private int mTextureDataHandle1;
     private int mTextureDataHandle2;
+
 
     /**
      * Converts a raw text file, saved as a resource, into an OpenGL ES shader.
@@ -185,6 +226,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         setCardboardView(cardboardView);
 
         modelCube = new float[16];
+        modelSkybox = new float[16];
         camera = new float[16];
         view = new float[16];
         modelViewProjection = new float[16];
@@ -219,6 +261,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     @Override
     public void onSurfaceCreated(EGLConfig config) {
         Log.i(TAG, "onSurfaceCreated");
+        heightMap = new HeightMap();
+
         GLES20.glClearColor(0.1f, 0.1f, 0.1f, 0.5f); // Dark background so text shows up well.
 
         ByteBuffer bbVertices = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_COORDS.length * 4);
@@ -245,6 +289,24 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         cubeNormals = bbNormals.asFloatBuffer();
         cubeNormals.put(WorldLayoutData.CUBE_NORMALS);
         cubeNormals.position(0);
+
+        ByteBuffer bbSkyboxVertices = ByteBuffer.allocateDirect(WorldLayoutData.SKYBOX_COORDS.length * 4);
+        bbSkyboxVertices.order(ByteOrder.nativeOrder());
+        skyboxVertices = bbVertices.asFloatBuffer();
+        skyboxVertices.put(WorldLayoutData.SKYBOX_COORDS);
+        skyboxVertices.position(0);
+
+        ByteBuffer bbSkyboxColors = ByteBuffer.allocateDirect(WorldLayoutData.SKYBOX_COLORS.length * 4);
+        bbSkyboxColors.order(ByteOrder.nativeOrder());
+        skyboxColors = bbColors.asFloatBuffer();
+        skyboxColors.put(WorldLayoutData.SKYBOX_COLORS);
+        skyboxColors.position(0);
+
+        ByteBuffer bbSkyboxNormals = ByteBuffer.allocateDirect(WorldLayoutData.SKYBOX_NORMALS.length * 4);
+        bbSkyboxNormals.order(ByteOrder.nativeOrder());
+        skyboxNormals = bbNormals.asFloatBuffer();
+        skyboxNormals.put(WorldLayoutData.SKYBOX_NORMALS);
+        skyboxNormals.position(0);
 
         // make a floor
         ByteBuffer bbFloorVertices = ByteBuffer.allocateDirect(WorldLayoutData.FLOOR_COORDS.length * 4);
@@ -275,6 +337,29 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         int gridShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.grid_fragment);
         int passthroughShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.passthrough_fragment);
 
+        skyboxProgram = GLES20.glCreateProgram();
+        GLES20.glAttachShader(skyboxProgram, vertexShader);
+        GLES20.glAttachShader(skyboxProgram, passthroughShader);
+        GLES20.glLinkProgram(skyboxProgram);
+        GLES20.glUseProgram(skyboxProgram);
+
+        checkGLError("skybox program");
+
+        skyboxPositionParam = GLES20.glGetAttribLocation(skyboxProgram, "a_Position");
+        skyboxNormalParam = GLES20.glGetAttribLocation(skyboxProgram, "a_Normal");
+        skyboxColorParam = GLES20.glGetAttribLocation(skyboxProgram, "a_Color");
+        skyboxModelParam = GLES20.glGetUniformLocation(skyboxProgram, "u_Model");
+        skyboxModelViewParam = GLES20.glGetUniformLocation(skyboxProgram, "u_MVMatrix");
+        skyboxModelViewProjectionParam = GLES20.glGetUniformLocation(skyboxProgram, "u_MVP");
+        skyboxLightPosParam = GLES20.glGetUniformLocation(skyboxProgram, "u_LightPos");
+
+        GLES20.glEnableVertexAttribArray(skyboxPositionParam);
+        GLES20.glEnableVertexAttribArray(skyboxNormalParam);
+        GLES20.glEnableVertexAttribArray(skyboxColorParam);
+
+        checkGLError("skybox program params");
+
+
         cubeProgram = GLES20.glCreateProgram();
         GLES20.glAttachShader(cubeProgram, vertexShader);
         GLES20.glAttachShader(cubeProgram, passthroughShader);
@@ -295,7 +380,24 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         GLES20.glEnableVertexAttribArray(cubeNormalParam);
         GLES20.glEnableVertexAttribArray(cubeColorParam);
 
-        checkGLError("Cube program params");
+        //set up the terrain shaders
+
+        heightMapProgram = GLES20.glCreateProgram();
+        GLES20.glAttachShader(heightMapProgram, vertexShader);
+        GLES20.glAttachShader(heightMapProgram, passthroughShader);
+        GLES20.glLinkProgram(heightMapProgram);
+        GLES20.glUseProgram(heightMapProgram);
+
+        checkGLError("heightmap program");
+        heightMapModelParam = GLES20.glGetUniformLocation(heightMapProgram, "u_Model");
+        heightMapModelViewParam = GLES20.glGetUniformLocation(heightMapProgram, "u_MVMatrix");
+        heightMapModelViewProjectionParam = GLES20.glGetUniformLocation(heightMapProgram, "u_MVP");
+        heightMapLightPosParam = GLES20.glGetUniformLocation(heightMapProgram, "u_LightPos");
+
+        positionAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Position");
+        normalAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Normal");
+        colorAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Color");
+
 
         floorProgram = GLES20.glCreateProgram();
         GLES20.glAttachShader(floorProgram, vertexShader);
@@ -322,7 +424,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         mTextureDataHandle1 = loadTexture(R.drawable.water);
         mTextureDataHandle2 = loadTexture(R.drawable.rocks);
 
-
         checkGLError("Floor program params");
 
         GLES20.glEnable(GLES20.GL_DEPTH_TEST);
@@ -333,6 +434,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         Matrix.setIdentityM(modelFloor, 0);
         Matrix.translateM(modelFloor, 0, 0, -floorDepth, 0); // Floor appears below user.
+
+        // Object first appears directly in front of user.
+        Matrix.setIdentityM(modelSkybox, 0);
+        Matrix.translateM(modelSkybox, 0, 0, 0, 0);
 
         checkGLError("onSurfaceCreated");
     }
@@ -393,6 +498,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         mTextureUniformHandle2 = GLES20.glGetUniformLocation(mProgramHandle, "u_Texture2");
         mTextureCoordinateHandle = GLES20.glGetAttribLocation(mProgramHandle, "a_TexCoordinate");
 
+//        mTextureCoordinateHandle = GLES20.glGetAttribLocation(mProgramHandle, "a_TexCoordinate");
         // Set the active texture unit to texture unit 0.
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureDataHandle1);
@@ -425,6 +531,11 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         Matrix.multiplyMM(modelView, 0, view, 0, modelFloor, 0);
         Matrix.multiplyMM(modelViewProjection, 0, perspective, 0,
                 modelView, 0);
+
+        heightMap.render();
+
+        drawSkybox();
+
         drawFloor();
     }
 
@@ -459,6 +570,54 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         GLES20.glVertexAttribPointer(cubeNormalParam, 3, GLES20.GL_FLOAT, false, 0, cubeNormals);
         GLES20.glVertexAttribPointer(cubeColorParam, 4, GLES20.GL_FLOAT, false, 0,
                 isLookingAtObject() ? cubeFoundColors : cubeColors);
+
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
+        checkGLError("Drawing cube");
+    }
+    public void drawSkybox() {
+
+//        mTextureUniformHandle1 = GLES20.glGetUniformLocation(mProgramHandle, "u_Texture1");
+//        mTextureUniformHandle2 = GLES20.glGetUniformLocation(mProgramHandle, "u_Texture2");
+//        mTextureCoordinateHandle = GLES20.glGetAttribLocation(mProgramHandle, "a_TexCoordinate");
+//
+//        mTextureCoordinateHandle = GLES20.glGetAttribLocation(mProgramHandle, "a_TexCoordinate");
+//        // Set the active texture unit to texture unit 0.
+//        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureDataHandle1);
+//
+//        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureDataHandle2);
+//
+//        GLES20.glEnableVertexAttribArray(mTextureCoordinateHandle);
+//        GLES20.glVertexAttribPointer(mTextureCoordinateHandle, mTextureCoordinateDataSize, GLES20.GL_FLOAT, false,
+//                0, floorTexts);
+//
+//        // Tell the texture uniform sampler to use this texture in the shader by binding to texture unit 0.
+//        GLES20.glUniform1i(mTextureUniformHandle1, 0);
+//        GLES20.glUniform1i(mTextureUniformHandle2, 1);
+
+        ///////////
+        GLES20.glUseProgram(skyboxProgram);
+
+        GLES20.glUniform3fv(skyboxLightPosParam, 1, lightPosInEyeSpace, 0);
+
+        // Set the Model in the shader, used to calculate lighting
+        GLES20.glUniformMatrix4fv(skyboxModelParam, 1, false, modelSkybox, 0);
+
+        // Set the ModelView in the shader, used to calculate lighting
+        GLES20.glUniformMatrix4fv(skyboxModelViewParam, 1, false, modelView, 0);
+
+        // Set the position of the cube
+        GLES20.glVertexAttribPointer(skyboxPositionParam, COORDS_PER_VERTEX, GLES20.GL_FLOAT,
+                false, 0, skyboxVertices);
+
+        // Set the ModelViewProjection matrix in the shader.
+        GLES20.glUniformMatrix4fv(skyboxModelViewProjectionParam, 1, false, modelViewProjection, 0);
+
+        // Set the normal positions of the cube, again for shading
+        GLES20.glVertexAttribPointer(skyboxNormalParam, 3, GLES20.GL_FLOAT, false, 0, skyboxNormals);
+        GLES20.glVertexAttribPointer(skyboxColorParam, 4, GLES20.GL_FLOAT, false, 0,
+                skyboxColors);
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
         checkGLError("Drawing cube");
@@ -605,4 +764,252 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         return textureHandle[0];
     }
+
+    class HeightMap
+    {
+        final int[] vertexBuffer = new int[1];
+        final int[] indexBuffer = new int[1];
+
+        int indexCount;
+
+        HeightMap() {
+            try {
+                final BitmapFactory.Options options = new BitmapFactory.Options();
+                options.inScaled = false;   // No pre-scaling
+
+                // Read in the resource
+                final Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.raw.heightmap, options);
+
+                int width = bitmap.getWidth();
+                int height = bitmap.getHeight();
+
+                final int[] pixels = new int[width * height];
+                bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+                bitmap.recycle();
+
+
+                final int floatsPerVertex = POS_DATA_ELEMENTS_SIZE +
+                        NORMAL_DATA_ELEMENTS_SIZE + COLOR_DATA_ELEMENTS_SIZE;
+
+                float xScale = 400f/(float)width;
+                float yScale = 400f/(float)height;
+
+                final float[] heightmapVertices = new float[
+                        width * height * floatsPerVertex];
+                int offset = 0;
+                //positions
+                float[][] y_positions = new float[width][height];
+                float[] positions = new float[width*height*POS_DATA_ELEMENTS_SIZE];
+                for (int row = 0; row < height; row++) {
+                    for (int col = 0; col < width; col++) {
+                        // The heightmap will lie flat on the XZ plane and centered
+                        // around (0, 0), with the bitmap width mapped to X and the
+                        // bitmap height mapped to Z, and Y representing the height. We
+                        // assume the heightmap is grayscale, and use the value of the
+                        // red color to determine the height.
+                        final float xPosition = xScale * col - 200f;
+//            final float yPosition =
+//                    (float) (Color.red(pixels[(row * height) + col]) / 100f) -1.5f;
+                        final float yPosition =
+                                ((Color.red(pixels[(row * height) + col]) / 255f)*-150f) + 30f;
+                        final float zPosition = yScale * row - 200f;
+                        positions[offset++] = xPosition;
+                        positions[offset++] = yPosition;
+                        positions[offset++] = zPosition;
+
+                        y_positions[col][row] = yPosition;
+                    }
+                }
+
+                offset = 0;
+                int pos_off = 0;
+                for(int row=0; row<height; row++){
+                    for(int col=0; col<height; col++){
+                        heightmapVertices[offset++] = positions[pos_off++];
+                        heightmapVertices[offset++] = positions[pos_off++];
+                        heightmapVertices[offset++] = positions[pos_off++];
+
+                        //normals
+
+                        //first calculate vectors to adjacent vertices
+                        //in a grid this is the vertex above minus the current vertex,
+                        //the vertex diagonally and to the left minus the current vertex
+                        //and the vertex to the left minus the current vertex
+                        float[] v1 = new float[3];
+                        if(col != 0 && row != height-1) {
+                            v1[0] = (xScale * (col - 1) - 200f) - (xScale * col - 200f);
+                            v1[1] = (y_positions[col - 1][row + 1] - y_positions[col][row]);
+                            v1[2] = (yScale * (row + 1) - 200f) - (yScale * row - 200f);
+                        }
+                        float[] v2 = new float[3];
+                        if(row != height-1) {
+                            v2[0] = (xScale * (col) - 200f) - (xScale * col - 200f);
+                            v2[1] = (y_positions[col][row + 1] - y_positions[col][row]);
+                            v2[2] = (yScale * (row + 1) - 200f) - (yScale * row - 200f);
+                        }
+                        float[] v3 = new float[3];
+                        if(col!=0) {
+                            v3[0] = (xScale * (col - 1) - 200f) - (xScale * col - 200f);
+                            v3[1] = (y_positions[col - 1][row] - y_positions[col][row]);
+                            v3[2] = (yScale * (row) - 200f) - (yScale * row - 200f);
+                        }
+
+                        //find the normals via cross product and normalize with their length if not 0
+                        float[] v12 = cross(v1, v2);
+                        float[] v23 = cross(v2, v3);
+                        float[] v31 = cross(v3, v1);
+
+                        final float length12 = Matrix.length(v12[0], v12[1], v12[2]);
+                        final float length23 = Matrix.length(v23[0], v23[1], v23[2]);
+                        final float length31 = Matrix.length(v31[0], v31[1], v31[2]);
+
+                        if(length12 !=0){
+                            v12[0] /= length12;
+                            v12[1] /= length12;
+                            v12[2] /= length12;
+                        }
+                        if(length23 !=0){
+                            v23[0] /= length23;
+                            v23[1] /= length23;
+                            v23[2] /= length23;
+                        }
+                        if(length31 !=0){
+                            v31[0] /= length31;
+                            v31[1] /= length31;
+                            v31[2] /= length31;
+                        }
+                        //some all adjacent vector normals to find this vertex's normal
+                        final float[] normalVector = {
+                                (v12[0]+ v23[0] + v31[0]),
+                                (v12[1] + v23[1] + v31[1]),
+                                (v12[2] + v23[2] + v31[2])};
+                        //normalize if not 0
+                        final float length = Matrix.length(normalVector[0], normalVector[1], normalVector[2]);
+                        heightmapVertices[offset++] = length!=0? normalVector[0] / length : 0;
+                        heightmapVertices[offset++] = length!=0? normalVector[1] / length : 0;
+                        heightmapVertices[offset++] = length!=0? normalVector[2] / length : 0;
+
+//          //Add Colours
+                        heightmapVertices[offset++] = 0.2f;
+                        heightmapVertices[offset++] = 0.4f;
+                        heightmapVertices[offset++] = 0.3f;
+                        heightmapVertices[offset++] = 1f;
+                    }
+                }
+                //build the index data
+                final int numStrips = height -1;
+                final int numDegenerate = 2 * (numStrips -1);
+                final int verticesPerStrip = 2*width;
+
+                final short[] heightMapIndexData = new short[(
+                        verticesPerStrip*numStrips) + numDegenerate];
+                offset = 0;
+
+                for(int y=0; y<numStrips; y++){
+                    if(y>0){
+                        //start chunk... degenerate (strips share), so repeat the first vertex
+                        heightMapIndexData[offset++] = (short)(y*height);
+                    }
+                    for(int x=0; x<width; x++){
+                        //chunk of the strip
+                        heightMapIndexData[offset++] = (short)((y*height)+x);
+                        heightMapIndexData[offset++] = (short)(((y+1) * height)+x);
+                    }
+                    if(y<height-2){
+                        //end chunk...degenerate so repeat last vertex
+                        heightMapIndexData[offset++] = (short) (((y + 1) * height) + (width - 1));
+                    }
+                }
+                indexCount = heightMapIndexData.length;
+                final FloatBuffer heightMapVertexDataBuffer = ByteBuffer
+                        .allocateDirect(heightmapVertices.length * BYTES_PER_FLOAT)
+                        .order(ByteOrder.nativeOrder()).asFloatBuffer();
+                heightMapVertexDataBuffer.put(heightmapVertices).position(0);
+
+                final ShortBuffer heightMapIndexDataBuffer = ByteBuffer.allocateDirect(
+                        heightMapIndexData.length*BYTES_PER_SHORT).order(ByteOrder.nativeOrder().nativeOrder())
+                        .asShortBuffer();
+                heightMapIndexDataBuffer.put(heightMapIndexData).position(0);
+
+                GLES20.glGenBuffers(1, vertexBuffer, 0);
+                GLES20.glGenBuffers(1, indexBuffer, 0);
+                //create buffers
+                if(vertexBuffer[0]>0 && indexBuffer[0] > 0){
+                    GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer[0]);
+                    GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, heightMapVertexDataBuffer.capacity() * BYTES_PER_FLOAT,
+                            heightMapVertexDataBuffer, GLES20.GL_STATIC_DRAW);
+
+                    GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, indexBuffer[0]);
+                    GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, heightMapIndexDataBuffer.capacity()
+                            * BYTES_PER_SHORT, heightMapIndexDataBuffer, GLES20.GL_STATIC_DRAW);
+
+                    GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
+                    GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0);
+                } else {
+                    System.out.println("Error in buffer creation");
+                }
+
+            } catch(Throwable t) {
+                System.out.println("Error in buffer creation");
+            }
+        }
+
+        void render() {
+            GLES20.glUseProgram(heightMapProgram);
+
+            // Set ModelView, MVP, position, normals, and color.
+            GLES20.glUniform3fv(heightMapLightPosParam, 1, lightPosInEyeSpace, 0);
+            GLES20.glUniformMatrix4fv(heightMapModelParam, 1, false, modelFloor, 0);
+            GLES20.glUniformMatrix4fv(heightMapModelViewParam, 1, false, modelView, 0);
+            GLES20.glUniformMatrix4fv(heightMapModelViewProjectionParam, 1, false,
+                    modelViewProjection, 0);
+
+            if (vertexBuffer[0] > 0 && indexBuffer[0] > 0) {
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer[0]);
+
+                // Bind Attributes
+                GLES20.glVertexAttribPointer(positionAttribute, POS_DATA_ELEMENTS_SIZE, GLES20.GL_FLOAT, false,
+                        STRIDE, 0);
+                GLES20.glEnableVertexAttribArray(positionAttribute);
+
+                GLES20.glVertexAttribPointer(normalAttribute, NORMAL_DATA_ELEMENTS_SIZE, GLES20.GL_FLOAT, false,
+                        STRIDE, POS_DATA_ELEMENTS_SIZE * BYTES_PER_FLOAT);
+                GLES20.glEnableVertexAttribArray(normalAttribute);
+
+                GLES20.glVertexAttribPointer(colorAttribute, COLOR_DATA_ELEMENTS_SIZE, GLES20.GL_FLOAT, false,
+                        STRIDE, (POS_DATA_ELEMENTS_SIZE + NORMAL_DATA_ELEMENTS_SIZE) * BYTES_PER_FLOAT);
+                GLES20.glEnableVertexAttribArray(colorAttribute);
+
+                // Draw
+                GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, indexBuffer[0]);
+                GLES20.glDrawElements(GLES20.GL_TRIANGLE_STRIP, indexCount, GLES20.GL_UNSIGNED_SHORT, 0);
+
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);
+                GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0);
+            }
+        }
+
+        void release() {
+            if (vertexBuffer[0] > 0) {
+                GLES20.glDeleteBuffers(vertexBuffer.length, vertexBuffer, 0);
+                vertexBuffer[0] = 0;
+            }
+            if (indexBuffer[0] > 0) {
+                GLES20.glDeleteBuffers(indexBuffer.length, indexBuffer, 0);
+                indexBuffer[0] = 0;
+            }
+        }
+
+    }
+
+
+    //helper function for cross product of two 3 element vectors
+    private float[] cross(float[] p1, float[] p2) {
+        float[] result = new float[3];
+        result[0] = p1[1]*p2[2]-p2[1]*p1[2];
+        result[1] = p1[2]*p2[0]-p2[2]*p1[0];
+        result[2] = p1[0]*p2[1]-p2[0]*p1[1];
+        return result;
+    }
+
 }

@@ -94,6 +94,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private FloatBuffer skyboxColors;
     private FloatBuffer skyboxFoundColors;
     private FloatBuffer skyboxNormals;
+    private FloatBuffer skyTexts;
 
     private int cubeProgram;
     private int floorProgram;
@@ -151,13 +152,16 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private CardboardOverlayView overlayView;
     /** This is a handle to our cube shading program. */
     private int mProgramHandle;
+    private int mProgramHandleSky;
 
     /** This will be used to pass in the texture. */
     private int mTextureUniformHandle1;
     private int mTextureUniformHandle2;
+    private int mTextureUniformHandleSky;
 
     /** This will be used to pass in model texture coordinate information. */
     private int mTextureCoordinateHandle;
+    private int mTextureCoordinateHandleSky;
 
     /** Size of the texture coordinate data in elements. */
     private final int mTextureCoordinateDataSize = 2;
@@ -165,6 +169,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     /** This is a handle to our texture data. */
     private int mTextureDataHandle1;
     private int mTextureDataHandle2;
+    private int mTextureDataHandleSky;
 
 
     /**
@@ -308,6 +313,12 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         skyboxNormals.put(WorldLayoutData.SKYBOX_NORMALS);
         skyboxNormals.position(0);
 
+        ByteBuffer bbSkyTexts = ByteBuffer.allocateDirect(WorldLayoutData.FLOOR_TEXTCOORDS.length *4);
+        bbSkyTexts.order(ByteOrder.nativeOrder());
+        skyTexts = bbSkyTexts.asFloatBuffer();
+        skyTexts.put(WorldLayoutData.SKY_TEXTCOORDS);
+        skyTexts.position(0);
+
         // make a floor
         ByteBuffer bbFloorVertices = ByteBuffer.allocateDirect(WorldLayoutData.FLOOR_COORDS.length * 4);
         bbFloorVertices.order(ByteOrder.nativeOrder());
@@ -335,6 +346,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         int vertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.light_vertex);
         int gridShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.grid_fragment);
+        int skyShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.sky_fragment);
         int passthroughShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.passthrough_fragment);
 
         skyboxProgram = GLES20.glCreateProgram();
@@ -344,6 +356,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         GLES20.glUseProgram(skyboxProgram);
 
         checkGLError("skybox program");
+//        mProgramHandleSky = skyboxProgram;
+//        mTextureDataHandleSky = loadTexture(R.drawable.water1);
 
         skyboxPositionParam = GLES20.glGetAttribLocation(skyboxProgram, "a_Position");
         skyboxNormalParam = GLES20.glGetAttribLocation(skyboxProgram, "a_Normal");
@@ -358,7 +372,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         GLES20.glEnableVertexAttribArray(skyboxColorParam);
 
         checkGLError("skybox program params");
-
 
         cubeProgram = GLES20.glCreateProgram();
         GLES20.glAttachShader(cubeProgram, vertexShader);
@@ -398,7 +411,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         normalAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Normal");
         colorAttribute = GLES20.glGetAttribLocation(heightMapProgram, "a_Color");
 
-
         floorProgram = GLES20.glCreateProgram();
         GLES20.glAttachShader(floorProgram, vertexShader);
         GLES20.glAttachShader(floorProgram, gridShader);
@@ -411,7 +423,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         floorModelViewParam = GLES20.glGetUniformLocation(floorProgram, "u_MVMatrix");
         floorModelViewProjectionParam = GLES20.glGetUniformLocation(floorProgram, "u_MVP");
         floorLightPosParam = GLES20.glGetUniformLocation(floorProgram, "u_LightPos");
-
         floorPositionParam = GLES20.glGetAttribLocation(floorProgram, "a_Position");
         floorNormalParam = GLES20.glGetAttribLocation(floorProgram, "a_Normal");
         floorColorParam = GLES20.glGetAttribLocation(floorProgram, "a_Color");
@@ -473,7 +484,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     @Override
     public void onNewFrame(HeadTransform headTransform) {
         // Build the Model part of the ModelView matrix.
-        Matrix.rotateM(modelCube, 0, TIME_DELTA, 0.5f, 0.5f, 1.0f);
+       // Matrix.rotateM(modelCube, 0, TIME_DELTA, 0.5f, 0.5f, 1.0f);
 
         // Build the camera matrix and apply it to the ModelView.
         Matrix.setLookAtM(camera, 0, 0.0f, 0.0f, CAMERA_Z, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
@@ -498,13 +509,22 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         mTextureUniformHandle2 = GLES20.glGetUniformLocation(mProgramHandle, "u_Texture2");
         mTextureCoordinateHandle = GLES20.glGetAttribLocation(mProgramHandle, "a_TexCoordinate");
 
-//        mTextureCoordinateHandle = GLES20.glGetAttribLocation(mProgramHandle, "a_TexCoordinate");
+//        mTextureUniformHandleSky = GLES20.glGetUniformLocation(mProgramHandleSky, "u_TextureSky");
+//        mTextureCoordinateHandleSky = GLES20.glGetAttribLocation(mProgramHandleSky, "a_TexCoordinateSky");
+
         // Set the active texture unit to texture unit 0.
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureDataHandle1);
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureDataHandle2);
+
+//        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureDataHandleSky);
+
+//        GLES20.glDisableVertexAttribArray(mTextureCoordinateHandleSky);
+//        GLES20.glVertexAttribPointer(mTextureCoordinateHandleSky, mTextureCoordinateDataSize, GLES20.GL_FLOAT, false,
+//                2, skyTexts);
 
         GLES20.glEnableVertexAttribArray(mTextureCoordinateHandle);
         GLES20.glVertexAttribPointer(mTextureCoordinateHandle, mTextureCoordinateDataSize, GLES20.GL_FLOAT, false,
@@ -513,6 +533,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         // Tell the texture uniform sampler to use this texture in the shader by binding to texture unit 0.
         GLES20.glUniform1i(mTextureUniformHandle1, 0);
         GLES20.glUniform1i(mTextureUniformHandle2, 1);
+//        GLES20.glUniform1i(mTextureUniformHandleSky, 2);
 
         // Apply the eye transformation to the camera.
         Matrix.multiplyMM(view, 0, eye.getEyeView(), 0, camera, 0);
@@ -576,27 +597,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     }
     public void drawSkybox() {
 
-//        mTextureUniformHandle1 = GLES20.glGetUniformLocation(mProgramHandle, "u_Texture1");
-//        mTextureUniformHandle2 = GLES20.glGetUniformLocation(mProgramHandle, "u_Texture2");
-//        mTextureCoordinateHandle = GLES20.glGetAttribLocation(mProgramHandle, "a_TexCoordinate");
-//
-//        mTextureCoordinateHandle = GLES20.glGetAttribLocation(mProgramHandle, "a_TexCoordinate");
-//        // Set the active texture unit to texture unit 0.
-//        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureDataHandle1);
-//
-//        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
-//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureDataHandle2);
-//
-//        GLES20.glEnableVertexAttribArray(mTextureCoordinateHandle);
-//        GLES20.glVertexAttribPointer(mTextureCoordinateHandle, mTextureCoordinateDataSize, GLES20.GL_FLOAT, false,
-//                0, floorTexts);
-//
-//        // Tell the texture uniform sampler to use this texture in the shader by binding to texture unit 0.
-//        GLES20.glUniform1i(mTextureUniformHandle1, 0);
-//        GLES20.glUniform1i(mTextureUniformHandle2, 1);
-
-        ///////////
         GLES20.glUseProgram(skyboxProgram);
 
         GLES20.glUniform3fv(skyboxLightPosParam, 1, lightPosInEyeSpace, 0);
@@ -646,10 +646,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         GLES20.glVertexAttribPointer(floorColorParam, 4, GLES20.GL_FLOAT, false, 0, floorColors);
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
-
-//        GLES20.glEnableVertexAttribArray(mTextureCoordinateHandle);
-//        GLES20.glVertexAttribPointer(mTextureCoordinateHandle, mTextureCoordinateDataSize, GLES20.GL_FLOAT, false,
-//                0, floorTexts);
 
         checkGLError("drawing floor");
     }

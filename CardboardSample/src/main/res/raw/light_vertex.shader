@@ -7,14 +7,17 @@ attribute vec4 a_Position;
 attribute vec4 a_Color;
 attribute vec3 a_Normal;
 attribute vec2 a_TexCoordinate;
+attribute vec2 a_TexCoordinateSky;
 
 varying vec2 v_TexCoordinate;
+varying vec2 v_TexCoordinateSky;
 varying vec4 v_Color;
 varying vec3 v_Grid;
 
 void main() {
    v_Grid = vec3(u_Model * a_Position);
    v_TexCoordinate = a_TexCoordinate;
+   v_TexCoordinateSky = a_TexCoordinateSky;
 
    vec3 modelViewVertex = vec3(u_MVMatrix * a_Position);
    vec3 modelViewNormal = vec3(u_MVMatrix * vec4(a_Normal, 0.0));
